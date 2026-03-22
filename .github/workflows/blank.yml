@@ -1,0 +1,35 @@
+name: Günlük PuhuTV M3U Güncelleyici
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Her gün gece yarısı (UTC) çalışır
+  workflow_dispatch: # GitHub arayüzünden manuel tetiklemeye izin verir
+
+jobs:
+  update-playlist:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depoyu Klonla
+        uses: actions/checkout@v3
+
+      - name: Python Kurulumu
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Gerekli Kütüphaneleri Yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Scraping Scriptini Çalıştır
+        run: python puhutv_m3u.py
+
+      - name: Değişiklikleri İşle ve Pushla
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add puhutv_playlist.m3u
+          # Eğer dosyada değişiklik yoksa hata vermemesi için kontrol
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Otomatik Güncelleme: PuhuTV M3U Listesi" && git push)

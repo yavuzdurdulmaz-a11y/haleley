@@ -1,11 +1,11 @@
-name: Günlük PuhuTV Dizi M3U
+name: Günlük PuhuTV Dizi M3U Güncelleyici
 
 on:
   schedule:
-    - cron: '0 4 * * *' # Her gün gece 04:00'da (UTC) çalışır
-  workflow_dispatch: # Manuel tetikleme butonu
+    - cron: '0 4 * * *' # Her gün UTC saatiyle 04:00'te otomatik çalışır
+  workflow_dispatch: # GitHub arayüzünden senin manuel tetikleyebilmen için
 
-# 403 hatasını çözen yazma yetkisi
+# 403 Erişim Reddedildi hatasını çözen altın vuruş: Bota yazma yetkisi veriyoruz
 permissions:
   contents: write
 
@@ -14,25 +14,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Depoyu Çek
-        uses: actions/checkout@v3
+      - name: Depoyu Klonla
+        uses: actions/checkout@v4
 
       - name: Python Ortamını Hazırla
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Kütüphaneleri Kur
+      - name: Gerekli Kütüphaneleri Kur
         run: |
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 tqdm
 
-      - name: Scraper Scriptini Çalıştır
+      - name: PuhuTV Scraper Scriptini Çalıştır
         run: python puhutv_scraper.py
 
-      - name: M3U Dosyasını Kaydet ve Pushla
+      - name: Değişiklikleri Kaydet ve GitHub'a Pushla
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action Bot"
+          # Git ayarlarında bot kimliğini kullanıyoruz
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Oluşan m3u dosyasını ekle
           git add puhutv_diziler.m3u
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🚀 Güncelleme: PuhuTV Tüm Diziler M3U Listesi" && git push)
+          
+          # Eğer dosyada yeni bir değişiklik varsa commit at ve pushla, yoksa hata verme
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🚀 Otomatik Güncelleme: PuhuTV M3U Listesi" && git push)

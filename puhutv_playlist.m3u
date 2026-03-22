@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:-1 tvg-logo="https://img-puhutv.mncdn.com/media/24-11/05/ntv_logo.png" group-title="CANLI TV", NTV Canlı Yayın
+https://dogus.daioncdn.net/ntv/ntv.m3u8
+#EXTINF:-1 tvg-logo="https://img-puhutv.mncdn.com/media/26-02/18/startv_logo_2025-1771392403.png" group-title="CANLI TV", Star TV Canlı Yayın
+https://dogus.daioncdn.net/startv/startv.m3u8
+#EXTINF:-1 tvg-logo="https://img-puhutv.mncdn.com/media/24-11/05/kral_pop_logosu.png" group-title="CANLI TV", Kral Pop TV Canlı Yayın
+https://dogus.daioncdn.net/kralpoptv/kralpoptv.m3u8

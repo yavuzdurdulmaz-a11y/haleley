@@ -1,0 +1,124 @@
+name: DiziGom Otomatik Tarayıcı
+
+# Sadece sen GitHub üzerinden manuel "Run workflow" dediğinde çalışır
+on: 
+  workflow_dispatch:
+
+jobs:
+  scrape-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Python Ortamını Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Gerekli Kütüphaneleri Yükle
+        run: pip install httpx selectolax pyyaml
+
+      - name: Tarayıcıyı Çalıştır (JS Unpacker Dahil)
+        shell: python
+        run: |
+          import asyncio
+          import yaml
+          import json
+          import os
+          import re
+          import string
+          import httpx
+          from selectolax.parser import HTMLParser
+          from contextlib import suppress
+
+          # ==========================================
+          # AYARLAR (GÖMÜLÜ YAML KODU)
+          # ==========================================
+          YML_CONFIG = """
+          settings:
+            timeout: 15
+            output_dir: "outputs"
+            category_max_pages: 1  # Tüm siteyi sömürmek için 999 yap
+
+          plugin:
+            name: "DiziGom"
+            main_url: "https://dizigom104.com"
+
+          categories:
+            "Aksiyon": "https://dizigom104.com/tur/aksiyon/"
+            "Bilim Kurgu": "https://dizigom104.com/tur/bilim-kurgu/"
+            "Fantastik": "https://dizigom104.com/tur/fantastik/"
+            "Komedi": "https://dizigom104.com/tur/komedi/"
+          """
+
+          # ==========================================
+          # JAVASCRIPT UNPACKER (ŞİFRE ÇÖZÜCÜ)
+          # ==========================================
+          def unpack_js(packed_js: str) -> str:
+              """eval(function(p,a,c,k,e,d)...) ile şifrelenmiş JS kodunu çözer."""
+              match = re.search(r"}\('(.*?)',\s*(\d+),\s*(\d+),\s*'(.*?)'\.split\('\|'\)", packed_js)
+              if not match: return packed_js
+              
+              p, a, c, k = match.groups()
+              a, c = int(a), int(c)
+              k = k.split('|')
+              
+              def base_N(num, b):
+                  if num == 0: return "0"
+                  chars = string.digits + string.ascii_letters
+                  res = ""
+                  while num > 0:
+                      res = chars[num % b] + res
+                      num //= b
+                  return res
+                  
+              dict_k = {}
+              for i in range(c):
+                  dict_k[base_N(i, a)] = k[i] if k[i] else base_N(i, a)
+                  
+              def replace_func(m):
+                  word = m.group(0)
+                  return dict_k.get(word, word)
+                  
+              unpacked = re.sub(r'\b\w+\b', replace_func, p)
+              return unpacked.replace("\\'", "'")
+
+          # ==========================================
+          # KAZIYICI MOTOR (SCRAPER Sınıfı)
+          # ==========================================
+          class DiziGomScraper:
+              def __init__(self, config: dict):
+                  self.main_url = config['plugin']['main_url'].rstrip('/')
+                  self.timeout = config['settings'].get('timeout', 15)
+                  self.client = httpx.AsyncClient(
+                      timeout=self.timeout,
+                      follow_redirects=True,
+                      headers={
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                          "Referer": f"{self.main_url}/",
+                          "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+                      }
+                  )
+
+              def fix_url(self, url: str) -> str:
+                  if not url: return ""
+                  if url.startswith("http"): return url
+                  if url.startswith("//"): return f"https:{url}"
+                  if url.startswith("/"): return f"{self.main_url}{url}"
+                  return f"{self.main_url}/{url}"
+
+              async def crawl_category(self, endpoint: str, max_pages: int) -> list:
+                  items = []
+                  for page in range(1, max_pages + 1):
+                      # DiziGom sayfalama yapısı: /tur/aksiyon/page/2/ şeklindedir
+                      url = f"{endpoint.rstrip('/')}/page/{page}/" if page > 1 else endpoint
+                      
+                      try:
+                          response = await self.client.get(url)
+                          tree = HTMLParser(response.text)
+                      except Exception: continue
+                      
+                      nodes = tree.css("div.episode-box, div.single-item")
+                      if not nodes: break
+                          
+                      for node in nodes:
+                          title_node = node.css_first("div.serie-name a

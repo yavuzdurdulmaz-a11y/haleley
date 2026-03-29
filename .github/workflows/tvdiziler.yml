@@ -1,0 +1,95 @@
+name: TvDiziler Otomatik Tarayıcı
+
+# Sadece sen GitHub üzerinden manuel "Run workflow" dediğinde çalışır
+on: 
+  workflow_dispatch:
+
+jobs:
+  scrape-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Python Ortamını Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Gerekli Kütüphaneleri Yükle
+        run: pip install httpx selectolax pyyaml
+
+      - name: Tarayıcıyı Oluştur ve Çalıştır
+        run: |
+          cat << 'EOF' > scraper.py
+          import asyncio
+          import yaml
+          import json
+          import os
+          import re
+          import httpx
+          from selectolax.parser import HTMLParser
+          from contextlib import suppress
+
+          # ==========================================
+          # AYARLAR (GÖMÜLÜ YAML KODU)
+          # ==========================================
+          YML_CONFIG = """
+          settings:
+            timeout: 15
+            output_dir: "outputs"
+            category_max_pages: 1  # Tüm arşivi çekmek için burayı 999 yap
+
+          plugin:
+            name: "TvDiziler"
+            main_url: "https://tvdiziler.tv"
+
+          categories:
+            "Son Bolumler": "https://tvdiziler.tv"
+            "Aile": "https://tvdiziler.tv/dizi/tur/aile"
+            "Aksiyon": "https://tvdiziler.tv/dizi/tur/aksiyon"
+            "Bilim Kurgu": "https://tvdiziler.tv/dizi/tur/bilim-kurgu-fantazi"
+            "Komedi": "https://tvdiziler.tv/dizi/tur/komedi"
+          """
+
+          class TvDizilerScraper:
+              def __init__(self, config: dict):
+                  self.main_url = config['plugin']['main_url'].rstrip('/')
+                  self.timeout = config['settings'].get('timeout', 15)
+                  self.client = httpx.AsyncClient(
+                      timeout=self.timeout,
+                      follow_redirects=True,
+                      headers={
+                          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                          "Referer": f"{self.main_url}/",
+                          "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+                      }
+                  )
+
+              def fix_url(self, url: str) -> str:
+                  if not url: return ""
+                  if url.startswith("http"): return url
+                  if url.startswith("//"): return f"https:{url}"
+                  if url.startswith("/"): return f"{self.main_url}{url}"
+                  return f"{self.main_url}/{url}"
+
+              async def crawl_category(self, cat_name: str, endpoint: str, max_pages: int) -> list:
+                  items = []
+                  for page in range(1, max_pages + 1):
+                      if cat_name == "Son Bolumler":
+                          if page > 1: break
+                          url = endpoint
+                      else:
+                          url = f"{endpoint}/{page}" if page > 1 else endpoint
+
+                      try:
+                          response = await self.client.get(url)
+                          tree = HTMLParser(response.text)
+                      except Exception: continue
+                      
+                      nodes = tree.css("div.poster-xs") if cat_name == "Son Bolumler" else tree.css("div.poster-long")
+                      if not nodes: break
+                          
+                      for node in nodes:
+                          title_node = node.css_first("h2")
+                          title = title_node.text(strip=True).replace(" izle", "") if title_node else "Bilinmeyen"
+                          a_tag = node.css_first("a") if cat_name == "Son Bolumler" else node.css_first("div.poster-long-subject a")
+                          href = self.fix_

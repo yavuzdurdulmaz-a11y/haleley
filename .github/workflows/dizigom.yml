@@ -1,6 +1,5 @@
 name: DiziGom Otomatik Tarayıcı
 
-# Sadece sen GitHub üzerinden manuel "Run workflow" dediğinde çalışır
 on: 
   workflow_dispatch:
 
@@ -50,11 +49,7 @@ jobs:
             "Komedi": "https://dizigom104.com/tur/komedi/"
           """
 
-          # ==========================================
-          # JAVASCRIPT UNPACKER (ŞİFRE ÇÖZÜCÜ)
-          # ==========================================
           def unpack_js(packed_js: str) -> str:
-              """eval(function(p,a,c,k,e,d)...) ile şifrelenmiş JS kodunu çözer."""
               match = re.search(r"}\('(.*?)',\s*(\d+),\s*(\d+),\s*'(.*?)'\.split\('\|'\)", packed_js)
               if not match: return packed_js
               
@@ -82,9 +77,6 @@ jobs:
               unpacked = re.sub(r'\b\w+\b', replace_func, p)
               return unpacked.replace("\\'", "'")
 
-          # ==========================================
-          # KAZIYICI MOTOR (SCRAPER Sınıfı)
-          # ==========================================
           class DiziGomScraper:
               def __init__(self, config: dict):
                   self.main_url = config['plugin']['main_url'].rstrip('/')
@@ -109,9 +101,7 @@ jobs:
               async def crawl_category(self, endpoint: str, max_pages: int) -> list:
                   items = []
                   for page in range(1, max_pages + 1):
-                      # DiziGom sayfalama yapısı: /tur/aksiyon/page/2/ şeklindedir
                       url = f"{endpoint.rstrip('/')}/page/{page}/" if page > 1 else endpoint
-                      
                       try:
                           response = await self.client.get(url)
                           tree = HTMLParser(response.text)
@@ -121,4 +111,148 @@ jobs:
                       if not nodes: break
                           
                       for node in nodes:
-                          title_node = node.css_first("div.serie-name a
+                          title_node = node.css_first("div.serie-name a, div.categorytitle a")
+                          title = title_node.text(strip=True) if title_node else "Bilinmeyen"
+                          href = self.fix_url(title_node.attributes.get("href")) if title_node else ""
+                          img_tag = node.css_first("img")
+                          poster = self.fix_url(img_tag.attributes.get("src")) if img_tag else ""
+                          
+                          if href and "/dizi/" in href:
+                              items.append({"title": title, "url": href, "poster": poster})
+                          
+                      has_next = any("Sonraki" in a.text(strip=True) or "Next" in a.text(strip=True) for a in tree.css("div.pagination a, ul.page-numbers a"))
+                      if not has_next and page > 1: break
+                  return items
+
+              async def get_series_info(self, url: str) -> dict:
+                  try:
+                      response = await self.client.get(url)
+                      tree = HTMLParser(response.text)
+                  except Exception: return {"source_url": url, "episodes": []}
+
+                  title_node = tree.css_first("div.serieTitle h1")
+                  title = title_node.text(strip=True) if title_node else "Bilinmeyen Dizi"
+                  
+                  poster_style = tree.css_first("div.seriePoster")
+                  poster = ""
+                  if poster_style and poster_style.attributes.get("style"):
+                      p_match = re.search(r"url\(['\"]?([^'\")]+)['\"]?\)", poster_style.attributes.get("style"))
+                      if p_match: poster = self.fix_url(p_match.group(1))
+
+                  episodes = []
+                  for ep_node in tree.css("div.bolumust"):
+                      ep_a = ep_node.css_first("a")
+                      if not ep_a: continue
+                      
+                      ep_href = ep_a.attributes.get("href")
+                      ep_name_node = ep_node.css_first("div.bolum-ismi")
+                      ep_name = ep_name_node.text(strip=True) if ep_name_node else "Bölüm"
+                      
+                      ep_title_node = ep_node.css_first("div.baslik")
+                      ep_title_text = ep_title_node.text(strip=True) if ep_title_node else ""
+                      
+                      season, episode = 1, 1
+                      parts = ep_title_text.split()
+                      if len(parts) >= 3:
+                          season = int(parts[0].replace(".", "")) if parts[0].replace(".", "").isdigit() else 1
+                          episode = int(parts[2].replace(".", "")) if parts[2].replace(".", "").isdigit() else 1
+
+                      if ep_href:
+                          episodes.append({
+                              "season": season, "episode": episode, "title": ep_name or f"{season}. Sezon {episode}. Bölüm",
+                              "url": self.fix_url(ep_href), "video_links": []
+                          })
+
+                  return {"title": title, "poster": poster, "source_url": url, "episodes": episodes[::-1]}
+
+              async def get_video_links(self, url: str) -> list:
+                  results = []
+                  try:
+                      response = await self.client.get(url)
+                      tree = HTMLParser(response.text)
+                      script_node = tree.css_first("div#content script")
+                      if not script_node: return results
+                      
+                      json_data = json.loads(script_node.text(strip=True))
+                      content_url = json_data.get("contentUrl", "")
+                      if not content_url: return results
+                      
+                      play_url = content_url.replace("https://", "https://play.")
+                      iframe_resp = await self.client.get(play_url, headers={"Referer": f"{self.main_url}/"})
+                      
+                      packed_match = re.search(r"(eval\s*\(\s*function[\s\S]+?)\s*<\/script>", iframe_resp.text)
+                      if not packed_match: return results
+                      
+                      unpacked = unpack_js(packed_match.group(1))
+                      source_json = re.search(r'sources:\[\{(.*?)\}', unpacked)
+                      if source_json:
+                          source_str = "{" + source_json.group(1).replace("\/", "/") + "}"
+                          file_match = re.search(r'"?file"?\s*:\s*["\']([^"\']+)["\']', source_str)
+                          if file_match:
+                              results.append(self.fix_url(file_match.group(1)))
+                  except Exception: pass
+                  return list(set(results))
+
+              async def close(self):
+                  await self.client.aclose()
+
+          def save_as_json(data: list, filepath: str):
+              with open(filepath, "w", encoding="utf-8") as f:
+                  json.dump(data, f, ensure_ascii=False, indent=4)
+
+          def save_as_m3u(data: list, filepath: str):
+              lines = ["#EXTM3U\n"]
+              for item in data:
+                  series_title = item.get("title", "Bilinmeyen Dizi")
+                  poster = item.get("poster", "")
+                  for ep in item.get("episodes", []):
+                      ep_title = ep.get("title", f"S{ep.get('season', 1):02d}E{ep.get('episode', 1):02d}")
+                      for video_link in ep.get("video_links", []):
+                          extinf = f'#EXTINF:-1 tvg-logo="{poster}" group-title="{series_title}", {series_title} - {ep_title}\n'
+                          lines.append(extinf)
+                          lines.append(f"{video_link}\n")
+              with open(filepath, "w", encoding="utf-8") as f:
+                  f.writelines(lines)
+
+          def sanitize_filename(name: str) -> str:
+              return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
+          async def main():
+              print("[*] DiziGom JS Unpacker & Tarayıcı Başlatılıyor...")
+              config = yaml.safe_load(YML_CONFIG)
+              output_dir = config['settings'].get('output_dir', 'outputs')
+              max_pages = config['settings'].get('category_max_pages', 1)
+              os.makedirs(output_dir, exist_ok=True)
+
+              scraper = DiziGomScraper(config)
+              categories = config.get('categories', {})
+
+              for cat_name, cat_endpoint in categories.items():
+                  print(f"\n[*] Taranıyor: {cat_name}")
+                  items = await scraper.crawl_category(cat_endpoint, max_pages)
+                  category_data = []
+                  
+                  for item in items:
+                      details = await scraper.get_series_info(item['url'])
+                      item["episodes"] = details.get("episodes", [])
+                      for ep in item["episodes"]:
+                          ep["video_links"] = await scraper.get_video_links(ep["url"])
+                      category_data.append(item)
+
+                  safe_cat_name = sanitize_filename(cat_name)
+                  json_path = os.path.join(output_dir, f"{safe_cat_name}.json")
+                  m3u_path = os.path.join(output_dir, f"{safe_cat_name}.m3u")
+                  save_as_json(category_data, json_path)
+                  save_as_m3u(category_data, m3u_path)
+                  print(f"[+] {cat_name} başarıyla kaydedildi.")
+
+              await scraper.close()
+              print("\n[✓] Bütün İşlemler Tamamlandı!")
+
+          asyncio.run(main())
+
+      - name: Çıktıları İndirilebilir Dosya (Artifact) Olarak Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiziGom-Listeleri
+          path: outputs/

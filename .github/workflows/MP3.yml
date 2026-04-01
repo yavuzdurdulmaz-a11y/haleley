@@ -2,18 +2,18 @@ name: M3U Listesini Guncelle
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Her gün sabah saat 06:00'da çalışır (UTC)
-  workflow_dispatch: # Actions sekmesinden manuel olarak tetiklemek için buton ekler
+    - cron: '0 6 * * *' # Her gün sabah saat 06:00'da çalışır
+  workflow_dispatch: # Manuel tetikleme butonu
 
 permissions:
-  contents: write # Botun depoya dosyayı yazabilmesi için gerekli yetki
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Depoyu Çek (Checkout Repository)
+    - name: Depoyu Çek
       uses: actions/checkout@v4
 
     - name: Python Kurulumu
@@ -29,11 +29,17 @@ jobs:
     - name: Scraper Scriptini Çalıştır
       run: python scraper.py
 
-    - name: Değişiklikleri Kaydet ve GitHub'a Gönder (Commit & Push)
+    - name: Değişiklikleri Kaydet ve GitHub'a Gönder
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add playlist.m3u
         
-        # Eğer dosyada değişiklik varsa commit at ve pushla, yoksa hata verme geç
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Otomatik Güncelleme: M3U listesi yenilendi" && git push)
+        # Dosya başarılı bir şekilde oluştuysa commit at
+        if [ -f "playlist.m3u" ]; then
+          git add playlist.m3u
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Otomatik Güncelleme: M3U listesi yenilendi" && git push)
+          echo "İşlem tamamlandı."
+        else
+          echo "UYARI: playlist.m3u dosyası bulunamadı! Scraper çalışmadı veya link bulamadı."
+          exit 1
+        fi

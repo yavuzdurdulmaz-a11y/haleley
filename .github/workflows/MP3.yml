@@ -1,23 +1,20 @@
-name: M3U Listesini Guncelle
+name: Update Radyonet M3U Playlist
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Her gün saat 06:00'da (UTC) çalışır
-  workflow_dispatch: # Manuel çalıştırma butonu
-
-permissions:
-  contents: write
+    - cron: '0 0 * * *' # Her gün gece yarısı (UTC) çalışır
+  workflow_dispatch: # Actions sekmesinden manuel tetiklemeye izin verir
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Depoyu Çek
-      uses: actions/checkout@v4
+    - name: Repoyu Klonla
+      uses: actions/checkout@v3
 
-    - name: Python Kurulumu
-      uses: actions/setup-python@v5
+    - name: Python Ortamını Kur
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
@@ -27,19 +24,13 @@ jobs:
         pip install requests beautifulsoup4
 
     - name: Scraper Scriptini Çalıştır
-      run: python scraper.py
+      run: python radyonet_scraper.py
 
-    - name: Değişiklikleri Kaydet ve GitHub'a Gönder
+    - name: Değişiklikleri Commit Et ve Pushla
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        
-        # müzikmp3.m3u dosyası oluştuysa depoya gönder
-        if [ -f "müzikmp3.m3u" ]; then
-          git add müzikmp3.m3u
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Otomatik Güncelleme: Tüm site tarandı ve M3U listesi yenilendi" && git push)
-          echo "İşlem başarıyla tamamlandı, tüm liste çekildi!"
-        else
-          echo "UYARI: müzikmp3.m3u dosyası bulunamadı! Sayfada MP3 yok veya bağlantı koptu."
-          exit 1
-        fi
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add radyonet.m3u
+        # Sadece değişiklik varsa commit at, yoksa hata vermeden geç
+        git commit -m "M3U listesi otomatik olarak güncellendi" || exit 0
+        git push

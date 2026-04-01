@@ -2,75 +2,75 @@ import requests
 from bs4 import BeautifulSoup
 import urllib.parse
 import re
+import os
 
-# MP3 linklerinin ve görsellerinin bulunduğu kaynak sayfanın URL'si
-# LÜTFEN BURAYA MP3'LERİN LİSTELENDİĞİ SAYFANIN ADRESİNİ YAZIN
-KAYNAK_URL = "https://radyonet.net/mp3-listesi-sayfasi" 
+# LÜTFEN BURAYA MP3'LERİN LİSTELENDİĞİ ANA SAYFANIN ADRESİNİ YAZIN
+# Örnek: "https://radyonet.net/kategori/pop"
+KAYNAK_URL = "BURAYA_LINK_GELECEK"
 
 def clean_name(filename):
-    """
-    Dosya adından temiz bir şarkı ismi çıkarır.
-    Örn: sena-sener-cok-gec-kaldin-1647013272-23739.mp3 -> Sena Sener Cok Gec Kaldin
-    """
-    # .mp3 uzantısını kaldır
+    """Dosya adından temiz bir şarkı ismi çıkarır."""
     name = filename.replace(".mp3", "")
-    # Sondaki tire ile ayrılmış tarih/ID rakamlarını temizle (örn: -1647013272-23739)
     name = re.sub(r'-\d+-\d+$', '', name)
     name = re.sub(r'-\d+$', '', name)
-    # Tireleri boşluk yap ve her kelimenin baş harfini büyüt
     return name.replace("-", " ").title()
 
 def create_m3u():
+    if KAYNAK_URL == "BURAYA_LINK_GELECEK":
+        print("Hata: Lütfen scraper.py içindeki KAYNAK_URL değişkenine geçerli bir adres girin!")
+        return
+
     print(f"{KAYNAK_URL} adresinden veriler çekiliyor...")
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    response = requests.get(KAYNAK_URL, headers=headers)
-    
-    if response.status_code != 200:
-        print(f"Hata: Sayfaya ulaşılamadı. Durum Kodu: {response.status_code}")
+    try:
+        # Zaman aşımı ekleyerek sonsuz beklemeyi önlüyoruz
+        response = requests.get(KAYNAK_URL, headers=headers, timeout=15)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Bağlantı hatası: {e}")
         return
 
     soup = BeautifulSoup(response.content, 'html.parser')
-    
-    # M3U başlığı
     m3u_content = "#EXTM3U\n"
+    mp3_count = 0
     
-    # Sayfadaki tüm <a> (link) etiketlerini bul
-    for a_tag in soup.find_all('a', href=True):
-        link = a_tag['href']
+    # Sayfadaki a, audio ve source etiketlerini tara
+    for tag in soup.find_all(['a', 'audio', 'source']):
+        link = tag.get('href') or tag.get('src')
         
-        # Eğer link bir mp3 dosyasıysa
-        if link.endswith('.mp3'):
+        if link and '.mp3' in link:
             full_link = urllib.parse.urljoin(KAYNAK_URL, link)
             
-            # Şarkı ismini bul (Önce etiket metnine bak, yoksa URL'den temizle)
-            raw_name = a_tag.text.strip()
+            # İsim çıkarma
+            raw_name = tag.text.strip() if tag.name == 'a' else ""
             if not raw_name:
-                filename = link.split('/')[-1]
+                filename = full_link.split('/')[-1]
                 name = clean_name(filename)
             else:
                 name = raw_name
 
-            # Görseli bul (Eğer linkin içinde veya yanında bir img varsa)
-            img_tag = a_tag.find('img')
+            # Görsel bulma (linkin içinde img varsa al, yoksa varsayılan logo koy)
+            img_tag = tag.find('img') if tag.name == 'a' else None
             if img_tag and img_tag.get('src'):
                 logo_url = urllib.parse.urljoin(KAYNAK_URL, img_tag['src'])
             else:
-                # Görsel yoksa varsayılan bir radyo/müzik logosu koyabilirsiniz
-                logo_url = "https://via.placeholder.com/150/000000/FFFFFF/?text=Muzik"
+                logo_url = "https://via.placeholder.com/150/000000/FFFFFF/?text=FanatikPlay"
 
-            # M3U formatında ekle
             m3u_content += f'#EXTINF:-1 tvg-logo="{logo_url}", {name}\n'
             m3u_content += f"{full_link}\n"
+            mp3_count += 1
 
-    # Dosyayı kaydet
-    with open("playlist.m3u", "w", encoding="utf-8") as f:
-        f.write(m3u_content)
-        
-    print("Harika! playlist.m3u dosyası başarıyla oluşturuldu.")
+    # Eğer en az 1 tane mp3 bulunduysa dosyayı oluştur
+    if mp3_count > 0:
+        with open("playlist.m3u", "w", encoding="utf-8") as f:
+            f.write(m3u_content)
+        print(f"Başarılı! {mp3_count} adet şarkı playlist.m3u dosyasına kaydedildi.")
+    else:
+        print("Uyarı: Sayfada hiç .mp3 uzantılı link bulunamadı. M3U dosyası oluşturulmadı.")
 
 if __name__ == "__main__":
     create_m3u()

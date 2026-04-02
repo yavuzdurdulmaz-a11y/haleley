@@ -28,18 +28,39 @@ def get_mp3_link(detail_url):
         print(f"Hata ({detail_url}): {e}")
     return None
 
-def main():
-    playlist_content = "#EXTM3U\n"
-    sayfa = 1
+def ilk_harf_kategori(isim):
+    """Sanatçı isminin ilk harfini alıp düzgün bir kategori adı oluşturur."""
+    if not isim:
+        return "Belirsiz"
     
-    # Github Actions'ın zaman aşımına uğramaması için maksimum sayfa sınırı koyabilirsin (İsteğe bağlı)
-    # Şimdilik 300'e kadar tarayacak şekilde ayarladık, zaten site bittiğinde otomatik duracak.
+    ilk_harf = isim[0]
+    
+    # Türkçe karakter küçük harf dönüşüm düzeltmeleri
+    if ilk_harf == 'i':
+        ilk_harf = 'İ'
+    elif ilk_harf == 'ı':
+        ilk_harf = 'I'
+    else:
+        ilk_harf = ilk_harf.upper()
+
+    # Eğer ilk karakter bir rakamsa "0-9" kategorisine at
+    if ilk_harf.isdigit():
+        return "0-9"
+    elif ilk_harf.isalpha():
+        return ilk_harf
+    else:
+        return "Diğer"
+
+def main():
+    sayfa = 1
     MAX_SAYFA = 300 
+    
+    # Tüm şarkıları sıralamak için önce bir listede toplayacağız
+    tum_sarkilar = []
 
     while sayfa <= MAX_SAYFA:
         print(f"\n--- Sayfa {sayfa} İşleniyor ---")
         
-        # Sayfa 1 ise ana link, diğerleri için parametreli link
         if sayfa == 1:
             url = "https://radyonet.net/mp3dinle"
         else:
@@ -48,19 +69,17 @@ def main():
         response = scraper.get(url)
         
         if response.status_code != 200:
-            print(f"Hata: Sayfa {sayfa} erişilemedi (HTTP {response.status_code}). Döngü durduruluyor.")
+            print(f"Hata: Sayfa {sayfa} erişilemedi. Döngü durduruluyor.")
             break
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Sayfadaki diğer listelerle karışmaması için sadece "En Çok Dinlenenler" tablosunu bul
         hedef_tablo = soup.find('table', class_='enCokDinlenenlerTablo')
         
         if not hedef_tablo:
             print(f"Sayfa {sayfa}'de hedef tablo bulunamadı. Son sayfaya ulaşılmış olabilir.")
             break
             
-        # Hedef tablonun içindeki şarkı satırlarını bul
         songs = hedef_tablo.find_all('div', class_='mp3dinletabloSatir')
         
         if not songs:
@@ -69,11 +88,9 @@ def main():
             
         for song in songs:
             try:
-                # Görseli çekme
                 img_tag = song.find('img', class_='lazy')
                 img_url = img_tag.get('data-src') if img_tag else ""
                 
-                # Sanatçı ve şarkı adı
                 artist_tag = song.find('div', class_='mp3dinleSanatciAdi')
                 artist_a = artist_tag.find('a') if artist_tag else None
                 
@@ -83,7 +100,6 @@ def main():
                 artist = artist_a.text.strip() if artist_a else "Bilinmeyen Sanatçı"
                 title = title_a.text.strip() if title_a else "Bilinmeyen Şarkı"
                 
-                # Detay sayfası URL'si
                 detail_url = artist_a['href'] if artist_a else None
                 
                 if detail_url:
@@ -94,24 +110,44 @@ def main():
                     mp3_url = get_mp3_link(detail_url)
                     
                     if mp3_url:
-                        # M3U formatında satırı ekle
-                        playlist_content += f'#EXTINF:-1 tvg-logo="{img_url}", {artist} - {title}\n'
-                        playlist_content += f'{mp3_url}\n'
+                        # Kategori adını bul (A, B, C, 0-9 vb.)
+                        kategori = ilk_harf_kategori(artist)
+                        
+                        # Listeye ekle (daha sonra sıralamak için dict yapısı kullanıyoruz)
+                        tum_sarkilar.append({
+                            'artist': artist,
+                            'title': title,
+                            'img_url': img_url,
+                            'mp3_url': mp3_url,
+                            'kategori': kategori
+                        })
                     
-                    # ÖNEMLİ: Cloudflare banı yememek için her detay sayfasından sonra 1 saniye bekle
+                    # Ban yememek için 1 saniye bekle
                     time.sleep(1)
                         
             except Exception as e:
                 print(f"Şarkı işlenirken hata: {e}")
         
-        # Bir sonraki sayfaya geç
         sayfa += 1
 
-    # Tüm döngü bittikten sonra dosyayı kaydet
+    print("\nTüm sayfalar tarandı. Liste alfabetik olarak sıralanıyor...")
+    
+    # Toplanan şarkıları önce Sanatçı adına, sonra Şarkı adına göre alfabetik sıralıyoruz
+    tum_sarkilar = sorted(tum_sarkilar, key=lambda x: (x['artist'].lower(), x['title'].lower()))
+
+    # M3U içeriğini oluşturuyoruz
+    playlist_content = "#EXTM3U\n"
+    
+    for sarki in tum_sarkilar:
+        # group-title parametresi ile klasör mantığını yaratıyoruz
+        playlist_content += f'#EXTINF:-1 group-title="{sarki["kategori"]}" tvg-logo="{sarki["img_url"]}", {sarki["artist"]} - {sarki["title"]}\n'
+        playlist_content += f'{sarki["mp3_url"]}\n'
+
+    # Dosyayı kaydet
     with open("radyonet.m3u", "w", encoding="utf-8") as f:
         f.write(playlist_content)
         
-    print("\n✅ İşlem Başarılı! Tüm sayfalar tarandı ve radyonet.m3u dosyası oluşturuldu.")
+    print(f"✅ İşlem Başarılı! Toplam {len(tum_sarkilar)} şarkı gruplandırılarak radyonet.m3u dosyasına kaydedildi.")
 
 if __name__ == "__main__":
     main()

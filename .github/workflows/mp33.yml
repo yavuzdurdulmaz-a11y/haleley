@@ -1,0 +1,39 @@
+name: Generate M3U Playlist
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Her gece saat 00:00'da (UTC) otomatik çalışır
+  workflow_dispatch: # GitHub üzerinden butona basarak manuel çalıştırabilmeni sağlar
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depoyu Klonla (Checkout repo)
+        uses: actions/checkout@v4
+
+      - name: Python'u Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Kutuphaneleri Yukle
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Python Scriptini Calistir
+        run: python mp3_cekici.py
+
+      - name: Degisiklikleri GitHub'a Gonder (Commit and Push)
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add playlist.m3u
+          # Eğer değişiklik yoksa hata vermemesi için kontrol ekliyoruz
+          git diff --quiet && git diff --staged --quiet || git commit -m "Oto-Güncelleme: playlist.m3u yenilendi"
+          git push

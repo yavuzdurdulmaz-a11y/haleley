@@ -61,12 +61,22 @@ def scrape_songs():
                     img_url = img_tag.get("src")
                     img_url = img_url if img_url.startswith("http") else BASE_URL + img_url
 
-                # 3. Ses Dosyası Linkini Çekme (Audio src'sini çekiyoruz)
+                # 3. Ses Dosyası Linkini Çekme ve Asıl Linki Çözme
                 audio_tag = detail_soup.select_one("audio#mp3player")
                 audio_url = ""
                 if audio_tag and audio_tag.get("src"):
-                    audio_url = audio_tag.get("src")
-                    audio_url = audio_url if audio_url.startswith("http") else BASE_URL + audio_url
+                    temp_url = audio_tag.get("src")
+                    temp_url = temp_url if temp_url.startswith("http") else BASE_URL + temp_url
+                    
+                    # Burada yönlendirmeyi takip edip mp3kulisi.mobi gibi asıl adresi buluyoruz
+                    try:
+                        # stream=True ile dosyayı indirmeden sadece asıl yönlenen adresi alıyoruz
+                        res_redirect = scraper.get(temp_url, stream=True, timeout=15)
+                        audio_url = res_redirect.url
+                        res_redirect.close() # Bağlantıyı hemen kapat
+                    except Exception as e:
+                        print(f"Asil link cozulemedi, varsayilan kullaniliyor: {e}")
+                        audio_url = temp_url
 
                 # Eğer ses linki bulabildiysek M3U listesine ekleyelim
                 if audio_url:

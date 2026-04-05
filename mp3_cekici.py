@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://mp3indirdur.life"
 CATEGORY_URL = f"{BASE_URL}/kategori/turkce-sarkilar"
+OUTPUT_FILE = "sarkilar.m3u"
 
 def scrape_songs():
     headers = {
@@ -60,10 +61,10 @@ def scrape_songs():
                 m3u_lines.append(audio_url)
 
         # M3U dosyasını oluştur ve kaydet
-        with open("playlist.m3u", "w", encoding="utf-8") as f:
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_lines))
         
-        print("M3U dosyasi basariyla olusturuldu: playlist.m3u")
+        print(f"M3U dosyasi basariyla olusturuldu: {OUTPUT_FILE}")
 
     except Exception as e:
         print(f"Hata olustu: {e}")

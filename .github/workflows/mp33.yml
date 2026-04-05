@@ -33,7 +33,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add playlist.m3u
-          # Eğer değişiklik yoksa hata vermemesi için kontrol ekliyoruz
-          git diff --quiet && git diff --staged --quiet || git commit -m "Oto-Güncelleme: playlist.m3u yenilendi"
-          git push
+          # Dosya varsa ekle, yoksa hata verme yoluna devam et (|| true)
+          git add sarkilar.m3u || true
+          # Değişiklik varsa commit at ve pushla
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Oto-Güncelleme: sarkilar.m3u yenilendi" && git push)

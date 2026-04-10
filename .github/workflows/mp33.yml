@@ -35,11 +35,14 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Yeni oluşan JSON, M3U ve State dosyalarını git'e ekle
+          # Yeni oluşan dosyaları git'e ekle
           git add state.json sarkilar.json sarkilar.m3u || true
           
           # Eğer değişiklik varsa commit yap, yoksa hata vermeden geç
           git diff --staged --quiet || git commit -m "🤖 Otomatik Güncelleme: Kaldığı yerden şarkılar çekildi"
+          
+          # ÇAKIŞMA ÇÖZÜMÜ: Push yapmadan önce GitHub'daki olası yeni değişiklikleri çek ve birleştir
+          git pull --rebase origin main
           
           # Repoya geri gönder
           git push
